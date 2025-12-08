@@ -5,7 +5,7 @@ struct ContentView: View {
         VStack {
             Text("Locksum Finance")
                 .font(.largeTitle)
-            Text("Connect to your FastAPI backend from here.")
+            Text("Connect this app to your FastAPI backend.")
         }
         .padding()
     }

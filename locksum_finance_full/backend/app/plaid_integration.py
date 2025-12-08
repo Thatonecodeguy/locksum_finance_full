@@ -1,6 +1,4 @@
 from __future__ import annotations
-import os
-from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from plaid import Client
@@ -15,12 +13,13 @@ from .database import get_db
 from .settings import settings
 from . import models, schemas
 from .auth import get_current_user
+from .plans import require_min_plan
 
 router = APIRouter(prefix="/plaid", tags=["Plaid"])
 
 def _plaid_client() -> plaid_api.PlaidApi:
     if not settings.PLAID_CLIENT_ID or not settings.PLAID_SECRET:
-        raise RuntimeError("Plaid keys not configured")
+        raise HTTPException(status_code=500, detail="Plaid keys not configured")
     configuration = Client(
         client_id=settings.PLAID_CLIENT_ID,
         secret=settings.PLAID_SECRET,
@@ -31,6 +30,7 @@ def _plaid_client() -> plaid_api.PlaidApi:
 
 @router.post("/link-token", response_model=schemas.PlaidLinkTokenOut)
 def create_link_token(user=Depends(get_current_user)):
+    require_min_plan(user, "plus")
     client = _plaid_client()
     req = LinkTokenCreateRequest(
         products=[Products("transactions")],
@@ -49,6 +49,7 @@ def exchange_public_token(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
+    require_min_plan(user, "plus")
     client = _plaid_client()
     req = ItemPublicTokenExchangeRequest(public_token=body.public_token)
     resp = client.item_public_token_exchange(req)

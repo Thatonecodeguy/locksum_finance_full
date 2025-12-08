@@ -6,6 +6,6 @@ import android.os.Bundle
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // TODO: implement UI that calls FastAPI backend
+        // TODO: Implement mobile UI that calls your backend
     }
 }

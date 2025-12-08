@@ -7,7 +7,6 @@ from . import models
 RiskLevel = Literal["low", "medium", "high"]
 
 def summarize_spending(db: Session, user_id: int, days: int = 30) -> Dict:
-    """Compute core stats for the last N days."""
     since = dt.date.today() - dt.timedelta(days=days)
     txns: List[models.Transaction] = (
         db.query(models.Transaction)
@@ -46,7 +45,6 @@ def summarize_spending(db: Session, user_id: int, days: int = 30) -> Dict:
         "peak_day_amount": round(peak_day[1], 2) if peak_day else 0.0,
     }
 
-
 def _compare_to_budgets(by_cat: Dict[str, float], budgets: Dict[str, float]) -> Dict:
     by_cat_vs_budget = []
     for cat, spent in by_cat.items():
@@ -57,17 +55,14 @@ def _compare_to_budgets(by_cat: Dict[str, float], budgets: Dict[str, float]) -> 
         by_cat_vs_budget.append(entry)
     return {"by_category": by_cat_vs_budget}
 
-
 def _detect_anomalies(by_cat: Dict[str, float], budgets: Dict[str, float]) -> List[str]:
     messages: List[str] = []
     for cat, spent in by_cat.items():
         limit = budgets.get(cat)
         if not limit:
-            # large category without a budget
-            if spent >= 100:  # threshold
+            if spent >= 100:
                 messages.append(
-                    f"High spend in '{cat}' (${spent:.2f}) but no budget set. "
-                    "Consider creating a budget here."
+                    f"High spend in '{cat}' (${spent:.2f}) but no budget set. Consider creating a budget here."
                 )
         else:
             pct = spent / limit
@@ -85,12 +80,9 @@ def _detect_anomalies(by_cat: Dict[str, float], budgets: Dict[str, float]) -> Li
                 )
     return messages
 
-
 def _safe_to_spend(stats: Dict, month_days_total: Optional[int] = None) -> Dict:
-    """Rough safe-to-spend calculation for the rest of the month."""
     today = dt.date.today()
     if month_days_total is None:
-        # assume current month
         next_month = today.replace(day=28) + dt.timedelta(days=4)
         last_day = (next_month - dt.timedelta(days=next_month.day)).day
         month_days_total = last_day
@@ -113,19 +105,15 @@ def _safe_to_spend(stats: Dict, month_days_total: Optional[int] = None) -> Dict:
         "suggested_safe_per_day": round(per_day, 2),
     }
 
-
 def _debt_payoff_plan(total_debt: float, monthly_extra: float, risk: RiskLevel) -> Dict:
-    """Very simple payoff planner: estimate months to payoff based on extra payment."""
     if total_debt <= 0 or monthly_extra <= 0:
         return {
             "total_debt": total_debt,
             "monthly_extra": monthly_extra,
             "estimated_months": None,
             "style": risk,
-            "note": "Provide a positive total_debt and monthly_extra to get a payoff estimate.",
+            "note": "Provide positive total_debt and monthly_extra to get a payoff estimate.",
         }
-
-    # Risk tweaks how aggressive we assume you want to be (simple scalar on monthly_extra)
     factor = {"low": 0.8, "medium": 1.0, "high": 1.2}[risk]
     effective_payment = monthly_extra * factor
     months = total_debt / effective_payment
@@ -135,29 +123,23 @@ def _debt_payoff_plan(total_debt: float, monthly_extra: float, risk: RiskLevel) 
         "effective_payment": round(effective_payment, 2),
         "estimated_months": round(months, 1),
         "style": risk,
-        "note": (
-            "This is a rough estimate. Real payoff time will depend on interest rates and fees."
-        ),
+        "note": "This is a rough estimate. Real payoff time depends on interest and fees.",
     }
 
-
 def generate_text_advice(stats: Dict, goals: Optional[Dict] = None) -> Dict:
-    """Rule-based 'AI' that converts stats + optional goals into advice."""
     days = stats["days"]
     total = stats["total_spent"]
     by_cat = stats["spend_by_category"]
     budgets = stats["budgets"]
     tx_count = stats["transaction_count"]
+    per_day = stats.get("avg_per_day", 0.0)
+    peak_day = stats.get("peak_day")
+    peak_amt = stats.get("peak_day_amount", 0.0)
 
     insights: List[str] = []
     warnings: List[str] = []
     actions: List[str] = []
 
-    per_day = stats.get("avg_per_day", 0.0)
-    peak_day = stats.get("peak_day")
-    peak_amt = stats.get("peak_day_amount", 0.0)
-
-    # Overall spend
     insights.append(
         f"You spent about ${total:.2f} in the last {days} days (~${per_day:.2f} per day)."
     )
@@ -168,20 +150,17 @@ def generate_text_advice(stats: Dict, goals: Optional[Dict] = None) -> Dict:
 
     if tx_count == 0:
         warnings.append(
-            "I didn't see any transactions for this period. "
-            "Make sure your bank connections are syncing correctly."
+            "I didn't see any transactions for this period. Connect your bank or upload data."
         )
         actions.append(
             "Connect at least one bank or card and import transactions so I can analyze your spending."
         )
-        return {"summary": insights, "warnings": warnings, "suggested_actions": actions}
+        return {"summary": insights, "warnings": warnings, "suggested_actions": actions, "categories": []}
 
-    # Budget comparisons & anomalies
     cmp = _compare_to_budgets(by_cat, budgets)
     anomalies = _detect_anomalies(by_cat, budgets)
     warnings.extend(anomalies)
 
-    # Missing core budgets
     core_cats = ["Rent", "Housing", "Groceries", "Utilities", "Savings"]
     missing = [c for c in core_cats if c not in budgets]
     if missing:
@@ -191,30 +170,26 @@ def generate_text_advice(stats: Dict, goals: Optional[Dict] = None) -> Dict:
             + ". Add budgets so I can help you stay on track."
         )
 
-    # Simple savings/progress toward goals (if provided)
     if goals:
         monthly_savings_target = goals.get("monthly_savings_target")
         if monthly_savings_target:
-            # pretend savings is difference between total budget and total spend
             budget_total = sum(budgets.values()) if budgets else 0.0
             inferred_savings = max(budget_total - total, 0.0)
             if inferred_savings >= monthly_savings_target:
                 insights.append(
-                    f"Based on your budgets vs. spending, you're on track to save "
-                    f"around ${inferred_savings:.2f} this month (target: ${monthly_savings_target:.2f})."
+                    f"You're on track to save around ${inferred_savings:.2f} this month "
+                    f"(target: ${monthly_savings_target:.2f})."
                 )
             else:
                 warnings.append(
-                    f"You're currently behind your savings target of ${monthly_savings_target:.2f} "
-                    f"this month. Consider trimming some flexible categories."
+                    f"You're behind your savings target of ${monthly_savings_target:.2f}. "
+                    "Consider trimming flexible categories."
                 )
 
-    # Generic savings suggestion
     if total > 0:
         target_savings = total * 0.10
         actions.append(
-            f"If possible, try to move around ${target_savings:.2f} from this period into "
-            "savings or debt payoff."
+            f"If possible, try to move around ${target_savings:.2f} from this period into savings or debt payoff."
         )
 
     return {
@@ -224,13 +199,7 @@ def generate_text_advice(stats: Dict, goals: Optional[Dict] = None) -> Dict:
         "categories": cmp["by_category"],
     }
 
-
-def build_ai_insights(
-    db: Session,
-    user_id: int,
-    days: int = 30,
-    goals: Optional[Dict] = None,
-) -> Dict:
+def build_ai_insights(db: Session, user_id: int, days: int = 30, goals: Optional[Dict] = None) -> Dict:
     stats = summarize_spending(db, user_id, days=days)
     advice = generate_text_advice(stats, goals=goals)
     safe = _safe_to_spend(stats)
@@ -240,10 +209,5 @@ def build_ai_insights(
         "safe_to_spend": safe,
     }
 
-
-def build_debt_plan(
-    total_debt: float,
-    monthly_extra: float,
-    risk: RiskLevel = "medium",
-) -> Dict:
+def build_debt_plan(total_debt: float, monthly_extra: float, risk: RiskLevel = "medium") -> Dict:
     return _debt_payoff_plan(total_debt, monthly_extra, risk)

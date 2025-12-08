@@ -1,12 +1,15 @@
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
+
 from .database import Base, engine, get_db
 from . import models, schemas
 from .auth import authenticate_user, create_access_token, hash_password, get_current_user
+from .ai import build_ai_insights, build_debt_plan
+from .plans import require_min_plan
 from .plaid_integration import router as plaid_router
 from .stripe_billing import router as billing_router
-from .ai import build_ai_insights, build_debt_plan
+from .settings import settings
 
 Base.metadata.create_all(bind=engine)
 
@@ -14,11 +17,14 @@ app = FastAPI(title="Locksum Finance API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[settings.FRONTEND_BASE_URL],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(plaid_router)
+app.include_router(billing_router)
 
 @app.get("/")
 def read_root():
@@ -42,6 +48,11 @@ def login(form: schemas.UserCreate, db: Session = Depends(get_db)):
     token = create_access_token({"sub": user.id})
     return {"access_token": token, "token_type": "bearer"}
 
+@app.get("/auth/me", response_model=schemas.UserOut)
+def me(user=Depends(get_current_user)):
+    return user
+
+# Transactions & budgets
 @app.post("/transactions", response_model=schemas.TransactionOut)
 def create_txn(txn: schemas.TransactionCreate, db: Session = Depends(get_db), user=Depends(get_current_user)):
     obj = models.Transaction(user_id=user.id, **txn.dict())
@@ -66,7 +77,7 @@ def create_budget(b: schemas.BudgetCreate, db: Session = Depends(get_db), user=D
 def list_budgets(db: Session = Depends(get_db), user=Depends(get_current_user)):
     return db.query(models.Budget).filter(models.Budget.user_id == user.id).all()
 
-
+# AI endpoints
 @app.post("/ai/insights")
 def ai_insights(
     payload: schemas.AIGoals | None = None,
@@ -74,18 +85,11 @@ def ai_insights(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    """Return AI-style insights & safe-to-spend guidance."""
+    require_min_plan(user, "plus")
     goals = payload.dict() if payload else None
     return build_ai_insights(db, user.id, days=days, goals=goals)
 
-
 @app.post("/ai/debt-plan")
-def ai_debt_plan(
-    body: schemas.DebtPlanRequest,
-):
-    """Rough debt payoff plan based on total debt and extra payment."""
+def ai_debt_plan(body: schemas.DebtPlanRequest):
     risk = body.risk if body.risk in {"low", "medium", "high"} else "medium"
     return build_debt_plan(body.total_debt, body.monthly_extra, risk=risk)
-
-app.include_router(plaid_router)
-app.include_router(billing_router)

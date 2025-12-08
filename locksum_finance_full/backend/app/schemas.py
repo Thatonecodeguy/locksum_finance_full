@@ -10,6 +10,10 @@ class UserCreate(BaseModel):
 class UserOut(BaseModel):
     id: int
     email: EmailStr
+    plan: str
+    plan_interval: str
+    subscription_status: str
+
     class Config:
         orm_mode = True
 
@@ -43,7 +47,7 @@ class BudgetOut(BudgetBase):
     class Config:
         orm_mode = True
 
-
+# AI helpers
 class AIGoals(BaseModel):
     monthly_savings_target: float | None = None
 
@@ -52,7 +56,7 @@ class DebtPlanRequest(BaseModel):
     monthly_extra: float
     risk: str = "medium"
 
-
+# Plaid
 class PlaidLinkTokenOut(BaseModel):
     link_token: str
 
@@ -60,5 +64,10 @@ class PlaidPublicTokenExchange(BaseModel):
     public_token: str
     institution_name: str | None = None
 
+# Stripe
 class StripeCheckoutSessionOut(BaseModel):
     url: str
+
+class CheckoutRequest(BaseModel):
+    plan: str = "plus"        # plus | pro
+    interval: str = "monthly" # monthly | yearly
