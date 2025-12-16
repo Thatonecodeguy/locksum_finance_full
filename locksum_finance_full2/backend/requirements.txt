@@ -9,3 +9,5 @@ passlib[bcrypt]
 python-dotenv
 plaid-python>=15.0.0
 stripe>=7,<12
+pydantic>=2.0
+pydantic-settings>=2.0
